@@ -13,7 +13,7 @@ inline double Random()
 }
 inline int Random(int n)
 {
-	return Random() * n;
+	return (int)(Random() * n);
 }
 inline int Random(int l, int r)
 {
@@ -42,6 +42,11 @@ constexpr StageEnum Stages;
 constexpr TargetEnum Targets;
 }
 
+class GamerenaEntity : public Entity
+{
+
+};
+
 struct GamerenaModifier : public EntityAttributeModifier
 {
 	virtual GamerenaModifier* Clone()const
@@ -60,7 +65,7 @@ struct GamerenaModifier : public EntityAttributeModifier
 	int IntelligenceModifier = 0;
 };
 
-class GamerenaAttribute;
+struct GamerenaAttribute;
 
 using SkillType = Delegate<void(Entity*, Entity*)>;
 struct SkillInfo
@@ -115,7 +120,7 @@ struct GamerenaState : public EntityState
 	bool Active = true;
 	int NextActionTime = 0;
 	int Score = 0;
-	int GroupIndex;
+	size_t GroupIndex;
 	int HP;
 	int Attack;
 	int Defense;
@@ -197,10 +202,10 @@ class Dispatcher
 		GamerenaAttribute& attr =
 			*(GamerenaAttribute*)modifiedAttr.get();
 		const int BaseWaitTime = 160;
-		return
-			BaseWaitTime
+		return (int)
+			(BaseWaitTime
 			- attr.BaseSpeed * 0.3
-			- (attr.BaseSpeed >> 1) * Random();
+			- (attr.BaseSpeed >> 1) * Random());
 		// BaseWaitTime(160) - [0.3, 0.8) * Speed[30,100) => WaitTime (80, 151]
 	}
 public:
@@ -262,16 +267,16 @@ public:
 	{
 		if (UpdateFlag) Update();
 		auto state = GetGamerenaState(*entity);
-		if (state->GroupIndex == -1)
+		if (state->GroupIndex == 0xffffffff)
 		{
 			int select = ActiveGroups[Random(ActiveGroups.size())];
 			return _LastTarget =
 				Entities[select][Random(Entities[select].size())].get();
 		}
-		int nth =
+		size_t nth =
 			find(ActiveGroups.begin(), ActiveGroups.end(), state->GroupIndex)
 		  - ActiveGroups.begin();
-		int select = Random(ActiveGroups.size() - 1);
+		size_t select = Random(ActiveGroups.size() - 1);
 		if (select >= nth) ++select;
 		select = ActiveGroups[select];
 		return _LastTarget = Entities[select][Random(Entities[select].size())].get();
@@ -280,9 +285,9 @@ public:
 	{
 		if (UpdateFlag) Update();
 		auto state = GetGamerenaState(*entity);
-		if (state->GroupIndex == -1)
+		if (state->GroupIndex == 0xffffffff)
 		{
-			int select = ActiveGroups[Random(ActiveGroups.size())];
+			size_t select = ActiveGroups[Random(ActiveGroups.size())];
 			return _LastTarget =
 				Entities[select][Random(Entities[select].size())].get();
 		}
@@ -327,7 +332,7 @@ protected:
 		{
 			List<Container<Entity>>& group = pair.second;
 			if (group.size() == 0) continue;
-			for (int i = 0; i < group.size();)
+			for (size_t i = 0; i < group.size();)
 			{
 				if (!GetGamerenaState(*group[i])->Active)
 					group.erase(group.begin() + i);
