@@ -1,4 +1,4 @@
-﻿#include "MyGamerenaCoreSimple.hpp"
+﻿#include "MyGamerenaCore.hpp"
 #include <cstdlib>
 #include <iostream>
 #include <ctime>
@@ -450,7 +450,7 @@ void CausePhysicDamage(Entity* p, Entity* t, double dmgFactor = 1.0)
 	int damage = max(1,
 		(int)(BaseDamage
 			+ pAttr.BaseAttack * 0.3 + pAttr.BaseAttack * 0.9 * Random()
-			- tAttr.BaseDefense * 0.2 + tAttr.BaseDefense * 1.3 * Random()));
+			- tAttr.BaseDefense * 0.2 + tAttr.BaseDefense * 1.3 * Random())) * dmgFactor;
 	cout << " 对 " << tAttr.GetName() << " 造成了 " << damage << "点伤害.\n";
 	pState.Score += damage;
 	tState.GetDamage(damage);
@@ -473,7 +473,7 @@ void CauseMagicDamage(Entity* p, Entity* t, double dmgFactor = 1.0)
 	// 闪避判定
 	const int BaseDodgeChance = 25;
 	int dodgeChance = BaseDodgeChance
-		- pAttr.BaseIntelligence >> 3
+		- (pAttr.BaseIntelligence >> 3)
 		+ (tAttr.BaseAccuracy - pAttr.BaseAccuracy) / 8
 		+ (tAttr.BaseMagicDefense - pAttr.BaseMagic) / 8;
 	if (Random(100) < dodgeChance)
@@ -486,7 +486,7 @@ void CauseMagicDamage(Entity* p, Entity* t, double dmgFactor = 1.0)
 		(int)(BaseDamage
 			+ pAttr.BaseMagic * 0.6 + pAttr.BaseMagic * 0.6 * Random()
 			- tAttr.BaseMagicDefense * 0.75 + tAttr.BaseMagicDefense * 0.75 * Random()
-			+ pAttr.BaseIntelligence * 0.2));
+			+ pAttr.BaseIntelligence * 0.2)) * dmgFactor;
 	cout << " 对 " << tAttr.GetName() << " 造成了 " << damage << "点魔法伤害.\n";
 	pState.Score += damage;
 	tState.GetDamage(damage);
@@ -510,7 +510,7 @@ void MakeCuel(Entity* p, Entity* t, double hFactor = 1.0)
 	int heal = max(1,
 		(int)(BaseHeal
 			+ pAttr.BaseMagic * 0.25 + pAttr.BaseMagic * 0.35 * Random()
-			+ pAttr.BaseIntelligence * 0.4));
+			+ pAttr.BaseIntelligence * 0.4)) * hFactor;
 	heal = min(tAttr.BaseHP - tState.HP, heal);
 	pState.Score += heal;
 	tState.HP += heal;
@@ -536,14 +536,14 @@ void FireBall(Entity* p, Entity* t)
 {
 	ShowObject(*p, 0, 0);
 	cout << "  发射出火球,";
-	CauseMagicDamage(p, t, 1.8);
+	CauseMagicDamage(p, t, 1.5);
 }
 
 void Critical(Entity* p, Entity* t)
 {
 	ShowObject(*p, 0, 0);
 	cout << "  瞄准了目标的弱点攻击,";
-	CausePhysicDamage(p, t, 2.15);
+	CausePhysicDamage(p, t, 2);
 }
 
 void Cuel(Entity* p, Entity* t)
@@ -719,7 +719,7 @@ int main()
 	}
 	const size_t srandF = 73;
 	const size_t srandS = 749431;
-	srand(/*hash<string>()(seed)*/time(0) * srandF + srandS);
+	srand(hash<string>()(seed) * srandF + srandS);
 	for (auto& pair : game.GetGroups())
 	{
 		cout << "GroupName: " << pair.first << '\n';
