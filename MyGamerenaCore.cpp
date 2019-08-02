@@ -4,11 +4,12 @@
 #include <ctime>
 #include <unordered_set>
 using namespace GameCore;
+using namespace Pptlib;
 using namespace std;
 
 inline double Random()
 {
-	const int RandMax = RAND_MAX + 1;
+	constexpr int RandMax = RAND_MAX + 1;
 	return ((double)rand()) / RandMax;
 }
 inline int Random(int n)
@@ -23,7 +24,7 @@ inline int Random(int l, int r)
 
 namespace {
 using Stage = int;
-using Target = int;
+using TargetType = int;
 struct StageEnum
 {
 	constexpr StageEnum() = default;
@@ -31,62 +32,54 @@ struct StageEnum
 	const Stage BeAttacked = 1 << 1;
 	const Stage Waiting = 1 << 2;
 };
-struct TargetEnum
+struct TargetTypeEnum
 {
-	constexpr TargetEnum() = default;
-	const Target Teammate = 1 << 0;
-	const Target Enemy = 1 << 1;
-	const Target Random = 1 << 2;
+	constexpr TargetTypeEnum() = default;
+	const TargetType Teammate = 1 << 0;
+	const TargetType Enemy = 1 << 1;
+	const TargetType Random = 1 << 2;
 };
 constexpr StageEnum Stages;
-constexpr TargetEnum Targets;
+constexpr TargetTypeEnum TargetsType;
 }
 
-class GamerenaEntity : public Entity
+class GamerenaEntity;
+using Targets = List<GamerenaEntity*>; // 暂定, 将来可能会改成类
+using SkillDelegateType =
+	Delegate<void(GamerenaEntity*, const Targets&)>;
+struct Skill
 {
-
-};
-
-struct GamerenaModifier : public EntityAttributeModifier
-{
-	virtual GamerenaModifier* Clone()const
+	operator bool()const
 	{
-		return new GamerenaModifier(*this);
+		return SkillDetails;
 	}
-	virtual void ModifyState(IState* state)const;
-	virtual void Modify(IAttribute* attribute)const;
-	int HPModifier = 0;
-	int AttackModifier = 0;
-	int DefenseModifier = 0;
-	int MagicModifier = 0;
-	int MagicDefenseModifier = 0;
-	int SpeedModifier = 0;
-	int AccuracyModifier = 0;
-	int IntelligenceModifier = 0;
-};
-
-struct GamerenaAttribute;
-
-using SkillType = Delegate<void(Entity*, Entity*)>;
-struct SkillInfo
-{
-	SkillType Skill;
-	Target TargetType;
+	bool operator!()const
+	{
+		return !SkillDetails;
+	}
+	void operator()(GamerenaEntity* performer,
+		const Targets& targets)const
+	{
+		SkillDetails.Invoke(performer, targets);
+	}
+	MultiDelegate<GamerenaEntity*, const Targets&> SkillDetails;
+	::TargetType TargetType;
 	int Priority;
 };
 
+struct GamerenaAttribute;
 class SkillSelector
 {
 public:
-	void AddSkill(const SkillInfo& skill)
+	void AddSkill(const Skill& skill)
 	{
-		if (!skill.Skill)
+		if (!skill)
 			throw InvalidArgumentException("skill is invalid.");
 		Skills.push_back(skill);
 		TotalPriority += skill.Priority;
 	}
 	// TODO:这是最简单的技能选择器; 实际将会根据Int实现多种选择器
-	SkillInfo& RandomSkill()
+	const Skill& RandomSkill()const
 	{
 		int k = Random(TotalPriority);
 		auto iter = Skills.begin();
@@ -100,48 +93,8 @@ public:
 	void GenerateSkill(GamerenaAttribute* e);
 private:
 	int TotalPriority = 0;
-	List<SkillInfo> Skills;
+	List<Skill> Skills;
 };
-
-struct GamerenaState : public EntityState
-{
-	virtual GamerenaState* Clone()const
-	{
-		return new GamerenaState(*this);
-	}
-	void GetDamage(int dmg)
-	{
-		HP = max(HP - dmg, 0);
-		if (HP == 0) Active = false;
-		for (auto& OnDeathHandler : OnDeath)
-			OnDeathHandler(this);
-	}
-	Stage Stage = Stages.Waiting;
-	bool Active = true;
-	int NextActionTime = 0;
-	int Score = 0;
-	size_t GroupIndex;
-	int HP;
-	int Attack;
-	int Defense;
-	int Magic;
-	int MagicDefense;
-	int Speed;
-	int Accuracy;
-	int Intelligence;
-	List<Delegate<void(GamerenaState*)>> OnDeath;
-	//List<Delegate<void(Entity*)>> OnDoAction;
-	//List<Delegate<void(Entity*)>> OnDefense;
-};
-
-inline GamerenaState* GetGamerenaState(Entity& e)
-{
-	return dynamic_cast<GamerenaState*>(e.GetState());
-}
-inline const GamerenaState* GetGamerenaState(const Entity& e)
-{
-	return dynamic_cast<const GamerenaState*>(e.GetState());
-}
 
 struct GamerenaAttribute : public EntityAttribute
 {
@@ -166,7 +119,20 @@ struct GamerenaAttribute : public EntityAttribute
 		BaseIntelligence = Random(30, 100);
 		tSkillSelector.GenerateSkill(this);
 	}
-	virtual GamerenaState* CreateDefaultState()const;
+	using DelegateType = Delegate<void(GamerenaEntity*)>;
+	using WrappedDelegateType = typename EntityAttribute::ActionHandler;
+	virtual void AddAction(const DelegateType& handler)
+	{
+		EntityAttribute::
+			AddAction(MakeWrappedDelegate(handler));
+	}
+	virtual void AddNamedAction(
+		const DelegateType& handler,
+		const string& name)
+	{
+		EntityAttribute::
+			AddNamedAction(MakeWrappedDelegate(handler), name);
+	}
 	SkillSelector tSkillSelector;
 	size_t OriginGroupIndex;
 	int BaseHP;
@@ -177,43 +143,135 @@ struct GamerenaAttribute : public EntityAttribute
 	int BaseSpeed;
 	int BaseAccuracy;
 	int BaseIntelligence;
+protected:
+	static WrappedDelegateType MakeWrappedDelegate(const DelegateType& del)
+	{
+		return [=](Entity* e) { del((GamerenaEntity*)e); };
+	}
 };
 
-class UnexceptedCallException : public Exception
+struct GamerenaState : public EntityState
+{
+	virtual GamerenaState* Clone()const
+	{
+		return new GamerenaState(*this);
+	}
+	GamerenaState(const GamerenaAttribute* attribute) :
+		EntityState(attribute)
+	{
+		InitFromAttribute();
+	}
+	template<typename AttributeType>
+	GamerenaState(Container<AttributeType> attribute) :
+		EntityState(attribute)
+	{
+		InitFromAttribute();
+	}
+	const GamerenaAttribute* GetAttribute()const
+	{
+		return (GamerenaAttribute*)EntityState::GetAttribute();
+	}
+	virtual void InitFromAttribute()
+	{
+		auto& attr = *GetAttribute();
+		GroupIndex = attr.OriginGroupIndex;
+		HP = attr.BaseHP;
+		Attack = attr.BaseAttack;
+		Defense = attr.BaseDefense;
+		Magic = attr.BaseMagic;
+		MagicDefense = attr.BaseMagicDefense;
+		Speed = attr.BaseSpeed;
+		Accuracy = attr.BaseAccuracy;
+		Intelligence = attr.BaseIntelligence;
+	}
+	void GetDamage(int dmg)
+	{
+		HP = max(HP - dmg, 0);
+		if (HP == 0)
+		{
+			Active = false;
+			OnDeath(this);
+		}
+	}
+	Stage Stage = Stages.Waiting;
+	size_t GroupIndex;
+	bool Active = true;
+	int NextActionTime = 0;
+	int Score = 0;
+	int HP;
+	int Attack;
+	int Defense;
+	int Magic;
+	int MagicDefense;
+	int Speed;
+	int Accuracy;
+	int Intelligence;
+	MultiDelegate<GamerenaState*> OnDeath;
+};
+
+class GamerenaEntity : public Entity
 {
 public:
-	UnexceptedCallException(const string& message) : Message(message) {}
-	virtual const char* what()noexcept { return Message.c_str(); }
-	string Message;
+	GamerenaEntity(
+		const string& groupName,
+		const string& name,
+		const GamerenaAttribute::DelegateType& mainAction) :
+		Entity(Container<GamerenaState>(new GamerenaState(
+			Container<GamerenaAttribute>(
+				new GamerenaAttribute(groupName, name)
+			))))
+	//     这一段比较复杂; 使用Container即shared_ptr包裹的对象的内存
+	// 被认为是被托管的, 所以内核接受时将不会执行复制操作（对Clone()函
+	// 数的调用）, 这里的话将节省复制的时间和空间
+	{
+		__GetAttribute()->AddAction(mainAction);
+	}
+	const GamerenaAttribute* GetAttribute()const
+	{
+		return (GamerenaAttribute*)Entity::GetAttribute();
+	}
+	const GamerenaState* GetState()const
+	{
+		return (GamerenaState*)Entity::GetState();
+	}
+	GamerenaState* GetState()
+	{
+		return (GamerenaState*)Entity::GetState();
+	}
+protected:
+	GamerenaAttribute* __GetAttribute()
+	{
+		return (GamerenaAttribute*)Entity::__GetAttribute();
+	}
 };
 
 class Dispatcher
 {
-	static bool Compare(Container<Entity> lhs, Container<Entity> rhs)
+	static bool Compare(Container<GamerenaEntity> lhs,
+		Container<GamerenaEntity> rhs)
 	{
 		return
-			GetGamerenaState(*lhs)->NextActionTime
-				<
-			GetGamerenaState(*rhs)->NextActionTime;
+			lhs->GetState()->NextActionTime
+				>
+			rhs->GetState()->NextActionTime;
 	}
-	static int SetNextActionTime(Container<Entity> e)
+	static void SetNextActionTime(Container<GamerenaEntity> e)
 	{
-		auto modifiedAttr = e->GetModifiedAttribute();
-		GamerenaAttribute& attr =
-			*(GamerenaAttribute*)modifiedAttr.get();
+		auto& attr = * e->GetAttribute();
 		const int BaseWaitTime = 160;
-		return (int)
+		int waitTime = (int)
 			(BaseWaitTime
 			- attr.BaseSpeed * 0.3
 			- (attr.BaseSpeed >> 1) * Random());
 		// BaseWaitTime(160) - [0.3, 0.8) * Speed[30,100) => WaitTime (80, 151]
+		e->GetState()->NextActionTime += waitTime;
 	}
 public:
 	void SetListener(const function<void(Dispatcher*, int)>& listener)
 	{
 		Listener = listener;
 	}
-	void AddEntity(Container<Entity> entity)
+	void AddEntity(Container<GamerenaEntity> entity)
 	{
 		SetNextActionTime(entity);
 		Entities.push_back(entity);
@@ -224,13 +282,13 @@ public:
 		GamerenaState* state;
 		do
 		{
-			state = GetGamerenaState(*Entities.front());
+			state = Entities.front()->GetState();
 			if (!state->Active)
 			{
 				pop_heap(Entities.begin(), Entities.end(), Compare);
 				Entities.pop_back();
 			}
-		} while (!state->Active&& Entities.size() > 1);
+		} while (!state->Active && Entities.size() > 1);
 		if (Entities.size() <= 1)
 		{
 			Listener(this, -1);
@@ -244,7 +302,7 @@ public:
 		push_heap(Entities.begin(), Entities.end(), Compare);
 		if (Listener) Listener(this, Time);
 	}
-	Entity* LastEntity()
+	GamerenaEntity* LastEntity()
 	{
 		return _LastEntity;
 	}
@@ -255,53 +313,49 @@ public:
 private:
 	int	Time = 0;
 	function<void(Dispatcher*, int)> Listener;
-	List<Container<Entity>> Entities;
-	Entity* _LastEntity = nullptr;
+	List<Container<GamerenaEntity>> Entities;
+	GamerenaEntity* _LastEntity = nullptr;
 };
 
 class TargetSelector
 {
 public:
 	// TODO: GetRandomTarget()是最简单的实现; 具体选择算法实现将会取决于Int
-	Entity* GetRandomTarget(Entity* entity)
+	List<GamerenaEntity*> GetRandomTarget(GamerenaEntity* entity)
 	{
 		if (UpdateFlag) Update();
-		auto state = GetGamerenaState(*entity);
-		if (state->GroupIndex == 0xffffffff)
+		auto& state = *entity->GetState();
+		if (state.GroupIndex == 0xffffffff)
 		{
 			int select = ActiveGroups[Random(ActiveGroups.size())];
-			return _LastTarget =
-				Entities[select][Random(Entities[select].size())].get();
+			return { Entities[select][Random(Entities[select].size())].get() };
 		}
 		size_t nth =
-			find(ActiveGroups.begin(), ActiveGroups.end(), state->GroupIndex)
+			find(ActiveGroups.begin(), ActiveGroups.end(), state.GroupIndex)
 		  - ActiveGroups.begin();
 		size_t select = Random(ActiveGroups.size() - 1);
 		if (select >= nth) ++select;
 		select = ActiveGroups[select];
-		return _LastTarget = Entities[select][Random(Entities[select].size())].get();
+		return { Entities[select][Random(Entities[select].size())].get() };
 	}
-	Entity* GetRandomTeammate(Entity* entity)
+	List<GamerenaEntity*> GetRandomTeammate(GamerenaEntity* entity)
 	{
 		if (UpdateFlag) Update();
-		auto state = GetGamerenaState(*entity);
-		if (state->GroupIndex == 0xffffffff)
+		auto& state = *entity->GetState();
+		if (state.GroupIndex == 0xffffffff)
 		{
 			size_t select = ActiveGroups[Random(ActiveGroups.size())];
-			return _LastTarget =
-				Entities[select][Random(Entities[select].size())].get();
+			return { Entities[select][Random(Entities[select].size())].get() };
 		}
-		int teammateCount = Entities[state->GroupIndex].size();
+		int teammateCount = Entities[state.GroupIndex].size();
 		if (teammateCount > 0)
-			return Entities[state->GroupIndex][Random(teammateCount)].get();
-		return entity;
+			return { Entities[state.GroupIndex][Random(teammateCount)].get() };
+		return { entity };
 
 	}
-	void AddEntity(Container<Entity> entity)
+	void AddEntity(Container<GamerenaEntity> entity)
 	{
-		auto state = GetGamerenaState(*entity);
-		auto attrCopy = entity->GetAttributeCopy();
-		GamerenaAttribute& attr = *(GamerenaAttribute*)attrCopy.get();
+		auto& attr = *entity->GetAttribute();
 		if (Entities.count(attr.OriginGroupIndex) == 0)
 		{
 			auto iter =lower_bound(
@@ -315,10 +369,6 @@ public:
 	{
 		UpdateFlag = flag;
 	}
-	Entity* LastTarget()
-	{
-		return _LastTarget;
-	}
 	int GroupsKeep()
 	{
 		if (UpdateFlag) Update();
@@ -330,11 +380,11 @@ protected:
 		UpdateFlag = false;
 		for (auto& pair : Entities)
 		{
-			List<Container<Entity>>& group = pair.second;
+			auto& group = pair.second;
 			if (group.size() == 0) continue;
 			for (size_t i = 0; i < group.size();)
 			{
-				if (!GetGamerenaState(*group[i])->Active)
+				if (!group[i]->GetState()->Active)
 					group.erase(group.begin() + i);
 				else
 					++i;
@@ -350,8 +400,7 @@ protected:
 private:
 	bool UpdateFlag = true;
 	List<size_t> ActiveGroups;
-	HashMap<size_t, List<Container<Entity>>> Entities;
-	Entity* _LastTarget;
+	HashMap<size_t, List<Container<GamerenaEntity>>> Entities;
 };
 
 class Game
@@ -372,30 +421,30 @@ public:
 	void AddName(const string& groupName, const string& name)
 	{
 		size_t hashCode = hash<string>()(groupName);
-		GamerenaAttribute attr(groupName, name);
-		attr.AddAction([&](Entity* e)
-			{
-				auto iattr = e->GetModifiedAttribute();
-				GamerenaAttribute& attr =
-					*(GamerenaAttribute*)iattr.get();
-				SkillInfo skill = attr.tSkillSelector.RandomSkill();
-				Entity* target = nullptr;
-				switch (skill.TargetType)
+		auto entity = Container<GamerenaEntity>(
+			new GamerenaEntity(
+				groupName,
+				name,
+				[&](GamerenaEntity* e)
 				{
-				case Targets.Enemy:
-					target = tTargetSelector.GetRandomTarget(e);
-					break;
-				case Targets.Teammate:
-					target = tTargetSelector.GetRandomTeammate(e);
-					break;
-				}
-				skill.Skill(e, target);
-			});
-		auto entity = Container<Entity>(new Entity(&attr, nullptr));
-		auto state = GetGamerenaState(*entity);
-		state->OnDeath.push_back([&](GamerenaState*){
+					auto& attr = *e->GetAttribute();
+					auto& skill = attr.tSkillSelector.RandomSkill();
+					List<GamerenaEntity*> target;
+					switch (skill.TargetType)
+					{
+					case TargetsType.Enemy:
+						target = tTargetSelector.GetRandomTarget(e);
+						break;
+					case TargetsType.Teammate:
+						target = tTargetSelector.GetRandomTeammate(e);
+						break;
+					}
+					skill(e, target);
+				}));
+		auto& state = *entity->GetState();
+		state.OnDeath += [&](GamerenaState*) {
 			tTargetSelector.SetUpdateFlag();
-		});
+		};
 		Groups[hashCode].push_back(entity);
 		tDispatcher.AddEntity(entity);
 		tTargetSelector.AddEntity(entity);
@@ -405,7 +454,7 @@ public:
 		while (!IsDone())
 			tDispatcher.DispatchNext();
 	}
-	using Group = List<Container<Entity>>;
+	using Group = List<Container<GamerenaEntity>>;
 	const HashMap<size_t, Group>& GetGroups()const
 	{
 		return Groups;
@@ -431,16 +480,18 @@ private:
 	HashMap<size_t, Group> Groups;
 };
 
-void ShowObject(const Entity& e, int space, int level);
+void ShowObject(const GamerenaEntity* e, int space, int level);
 
-void CausePhysicDamage(Entity* p, Entity* t, double dmgFactor = 1.0)
+void CausePhysicDamage(
+	GamerenaEntity* p,
+	List<GamerenaEntity*> targets,
+	double dmgFactor = 1.0)
 {
-	GamerenaState& pState = *GetGamerenaState(*p);
-	GamerenaState& tState = *GetGamerenaState(*t);
-	auto piAttr = p->GetModifiedAttribute();
-	auto tiAttr = t->GetModifiedAttribute();
-	GamerenaAttribute& pAttr = *(GamerenaAttribute*)piAttr.get();
-	GamerenaAttribute& tAttr = *(GamerenaAttribute*)tiAttr.get();
+	auto t = targets.front();
+	auto& pState = *p->GetState();
+	auto& tState = *t->GetState();
+	auto& pAttr = *p->GetAttribute();
+	auto& tAttr = *t->GetAttribute();
 	// 闪避判定
 	const int BaseDodgeChance = 16;
 	int dodgeChance = BaseDodgeChance
@@ -459,7 +510,7 @@ void CausePhysicDamage(Entity* p, Entity* t, double dmgFactor = 1.0)
 	cout << " 对 " << tAttr.GetName() << " 造成了 " << damage << "点伤害.\n";
 	pState.Score += damage;
 	tState.GetDamage(damage);
-	ShowObject(*t, 4, 0);
+	ShowObject(t, 4, 0);
 	if (tState.Active == false)
 	{
 		pState.Score += 30;
@@ -467,14 +518,16 @@ void CausePhysicDamage(Entity* p, Entity* t, double dmgFactor = 1.0)
 	}
 }
 
-void CauseMagicDamage(Entity* p, Entity* t, double dmgFactor = 1.0)
+void CauseMagicDamage(
+	GamerenaEntity* p,
+	List<GamerenaEntity*> targets,
+	double dmgFactor = 1.0)
 {
-	GamerenaState& pState = *GetGamerenaState(*p);
-	GamerenaState& tState = *GetGamerenaState(*t);
-	auto piAttr = p->GetModifiedAttribute();
-	auto tiAttr = t->GetModifiedAttribute();
-	GamerenaAttribute& pAttr = *(GamerenaAttribute*)piAttr.get();
-	GamerenaAttribute& tAttr = *(GamerenaAttribute*)tiAttr.get();
+	auto t = targets.front();
+	auto& pState = *p->GetState();
+	auto& tState = *t->GetState();
+	auto& pAttr = *p->GetAttribute();
+	auto& tAttr = *t->GetAttribute();
 	// 闪避判定
 	const int BaseDodgeChance = 25;
 	int dodgeChance = BaseDodgeChance
@@ -495,7 +548,7 @@ void CauseMagicDamage(Entity* p, Entity* t, double dmgFactor = 1.0)
 	cout << " 对 " << tAttr.GetName() << " 造成了 " << damage << "点魔法伤害.\n";
 	pState.Score += damage;
 	tState.GetDamage(damage);
-	ShowObject(*t, 4, 0);
+	ShowObject(t, 4, 0);
 	if (tState.Active == false)
 	{
 		pState.Score += 30;
@@ -503,14 +556,16 @@ void CauseMagicDamage(Entity* p, Entity* t, double dmgFactor = 1.0)
 	}
 }
 
-void MakeCuel(Entity* p, Entity* t, double hFactor = 1.0)
+void MakeCuel(
+	GamerenaEntity* p,
+	List<GamerenaEntity*> targets,
+	double hFactor = 1.0)
 {
-	GamerenaState& pState = *GetGamerenaState(*p);
-	GamerenaState& tState = *GetGamerenaState(*t);
-	auto piAttr = p->GetModifiedAttribute();
-	auto tiAttr = t->GetModifiedAttribute();
-	GamerenaAttribute& pAttr = *(GamerenaAttribute*)piAttr.get();
-	GamerenaAttribute& tAttr = *(GamerenaAttribute*)tiAttr.get();
+	auto t = targets.front();
+	auto& pState = *p->GetState();
+	auto& tState = *t->GetState();
+	auto& pAttr = *p->GetAttribute();
+	auto& tAttr = *t->GetAttribute();
 	const int BaseHeal = 10;
 	int heal = max(1,
 		(int)(BaseHeal
@@ -520,48 +575,47 @@ void MakeCuel(Entity* p, Entity* t, double hFactor = 1.0)
 	pState.Score += heal;
 	tState.HP += heal;
 	cout << " " << tAttr.GetName() << " 恢复了 "<< heal << " 点生命值.\n";
-	ShowObject(*t, 4, 0);
+	ShowObject(t, 4, 0);
 }
 
-void BaseAttack(Entity* p, Entity* t)
+void BaseAttack(GamerenaEntity* p, const Targets& targets)
 {
-	ShowObject(*p, 0, 0);
+	ShowObject(p, 0, 0);
 	cout << "  发起了攻击,";
-	CausePhysicDamage(p, t);
+	CausePhysicDamage(p, targets);
 }
 
-void BaseMagic(Entity * p, Entity * t)
+void BaseMagic(GamerenaEntity* p, const Targets& targets)
 {
-	ShowObject(*p, 0, 0);
+	ShowObject(p, 0, 0);
 	cout << "  使用法术攻击,";
-	CauseMagicDamage(p, t);
+	CauseMagicDamage(p, targets);
 }
 
-void FireBall(Entity* p, Entity* t)
+void FireBall(GamerenaEntity* p, const Targets& targets)
 {
-	ShowObject(*p, 0, 0);
+	ShowObject(p, 0, 0);
 	cout << "  发射出火球,";
-	CauseMagicDamage(p, t, 1.5);
+	CauseMagicDamage(p, targets, 1.5);
 }
 
-void Critical(Entity* p, Entity* t)
+void Critical(GamerenaEntity* p, const Targets& targets)
 {
-	ShowObject(*p, 0, 0);
+	ShowObject(p, 0, 0);
 	cout << "  瞄准了目标的弱点攻击,";
-	CausePhysicDamage(p, t, 2);
+	CausePhysicDamage(p, targets, 2);
 }
 
-void Cuel(Entity* p, Entity* t)
+void Cuel(GamerenaEntity* p, const Targets& targets)
 {
-	ShowObject(*p, 0, 0);
+	ShowObject(p, 0, 0);
 	cout << "  使用了治愈魔法,";
-	MakeCuel(p, t, 1.2);
+	MakeCuel(p, targets, 1.2);
 }
-
 
 void SkillSelector::GenerateSkill(GamerenaAttribute* pAttr)
 {
-	GamerenaAttribute& attr = *pAttr;
+	auto& attr = *pAttr;
 	int BaseAttackPriority =
 		250 + (attr.BaseAttack - attr.BaseMagic) * 4 * (0.5 + Random());
 	int BaseMagicPriority =
@@ -573,77 +627,27 @@ void SkillSelector::GenerateSkill(GamerenaAttribute* pAttr)
 		+ (attr.BaseAccuracy >> 1);
 	int CuelPriority =
 		60 + (attr.BaseIntelligence >> 1) + (attr.BaseMagic >> 2);
-	AddSkill({ BaseAttack, Targets.Enemy, BaseAttackPriority });
-	AddSkill({ BaseMagic, Targets.Enemy, BaseMagicPriority });
+	AddSkill({ std::list<SkillDelegateType>{ BaseAttack },
+		TargetsType.Enemy, BaseAttackPriority });
+	AddSkill({ std::list<SkillDelegateType>{ BaseMagic },
+		TargetsType.Enemy, BaseMagicPriority });
 	if (FireBallPriority > 140)
-		AddSkill({ FireBall, Targets.Enemy, FireBallPriority });
+		AddSkill({ std::list<SkillDelegateType>{ FireBall },
+			TargetsType.Enemy, FireBallPriority });
 	if (CriticalPriority > 125)
-		AddSkill({ Critical, Targets.Enemy, CriticalPriority });
+		AddSkill({ std::list<SkillDelegateType>{ Critical },
+			TargetsType.Enemy, CriticalPriority });
 	if (CuelPriority > 100)
-		AddSkill({ Cuel, Targets.Teammate, CuelPriority });
+		AddSkill({ std::list<SkillDelegateType>{ Cuel },
+			TargetsType.Teammate, CuelPriority });
 }
 
-inline void GamerenaModifier::ModifyState(IState* state)const
+void ShowObject(const GamerenaEntity* e, int space, int level)
 {
-	GamerenaState* pState = dynamic_cast<GamerenaState*>(state);
-	if (pState == nullptr)
-		throw InvalidArgumentException(
-			"state can\'t be null and have type of \"EntityState\".");
-	GamerenaState& State = *pState;
-	State.HP = max(State.HP + HPModifier, 0);
-}
-
-inline void GamerenaModifier::Modify(IAttribute* attribute)const
-{
-	GamerenaAttribute* pAttribute =
-		dynamic_cast<GamerenaAttribute*>(attribute);
-	if (pAttribute == nullptr)
-		throw InvalidArgumentException(
-			"attribute can\'t be null and have type of \"EntityAttribute\".");
-	GamerenaAttribute& Attribute = *pAttribute;
-	Attribute.BaseHP =
-		max(Attribute.BaseHP + HPModifier, 1);
-	Attribute.BaseAttack =
-		max(Attribute.BaseAttack + AttackModifier, 0);
-	Attribute.BaseDefense =
-		Attribute.BaseDefense + DefenseModifier;
-	Attribute.BaseMagic =
-		max(Attribute.BaseMagic + MagicModifier, 0);
-	Attribute.BaseMagicDefense =
-		Attribute.BaseMagicDefense + MagicDefenseModifier;
-	Attribute.BaseSpeed =
-		Attribute.BaseSpeed + SpeedModifier;
-	Attribute.BaseAccuracy =
-		max(Attribute.BaseSpeed + AccuracyModifier, 5);
-	Attribute.BaseIntelligence =
-		max(Attribute.BaseIntelligence + IntelligenceModifier, 0);
-}
-
-inline void ResetState(GamerenaState& state, const GamerenaAttribute& attr)
-{
-	state.GroupIndex = attr.OriginGroupIndex;
-	state.HP = attr.BaseHP;
-	state.Attack = attr.BaseAttack;
-	state.Defense = attr.BaseDefense;
-	state.Magic = attr.BaseMagic;
-	state.MagicDefense = attr.BaseMagicDefense;
-	state.Speed = attr.BaseSpeed;
-	state.Accuracy = attr.BaseAccuracy;
-	state.Intelligence = attr.BaseIntelligence;
-}
-
-inline GamerenaState* GamerenaAttribute::CreateDefaultState()const
-{
-	auto state = new GamerenaState();
-	ResetState(*state, *this);
-	return state;
-}
-
-void ShowObject(const Entity& e, int space, int level)
-{
-	const GamerenaState& state = *GetGamerenaState(e);
-	auto modifiedAttr = e.GetModifiedAttribute();
-	GamerenaAttribute& attr = *(GamerenaAttribute*)modifiedAttr.get();
+	if (e == nullptr)
+		throw NullArgumentException("entity can\'t be null.");
+	auto& state = *e->GetState();
+	auto& attr = *e->GetAttribute();
 	auto PrintSpace = [&](){
 		for (int i = 0; i < space; ++i) cout.put('\0');
 	};
@@ -724,13 +728,13 @@ int main()
 	}
 	const size_t srandF = 73;
 	const size_t srandS = 749431;
-	srand(hash<string>()(seed) * srandF + srandS);
+	srand(/*hash<string>()(seed)*/time(0) * srandF + srandS);
 	for (auto& pair : game.GetGroups())
 	{
 		cout << "GroupName: " << pair.first << '\n';
 		for (auto& member : pair.second)
 		{
-			ShowObject(*member, 4, 1);
+			ShowObject(member.get(), 4, 1);
 			cout.put('\n');
 		}
 	}
@@ -744,7 +748,7 @@ int main()
 		cout << "GroupName: " << pair.first << '\n';
 		for (auto& member : pair.second)
 		{
-			ShowObject(*member, 4, 2);
+			ShowObject(member.get(), 4, 2);
 			cout.put('\n');
 		}
 	}

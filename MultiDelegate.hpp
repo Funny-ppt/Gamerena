@@ -1,7 +1,9 @@
 #ifndef MULTI_DELEGATE_HPP
 #define MULTI_DELEGATE_HPP
+
 #include <functional>
 #include <list>
+#include "MyExceptions.hpp"
 
 namespace Pptlib
 {
@@ -10,7 +12,10 @@ template<typename... Args>
 class MultiDelegate
 {
 public:
-	using DelagateType = std::function<void(Args...)>;
+	using DelegateType = std::function<void(Args...)>;
+	MultiDelegate() = default;
+	MultiDelegate(const std::list<DelegateType>& delegates) :
+		Delegates(delegates) {}
 	void Invoke(Args ... args)const
 	{
 		for (auto& delegate : Delegates)
@@ -35,6 +40,10 @@ public:
 		for (auto& delegate : Delegates)
 			if (delegate) return true;
 		return false;
+	}
+	bool operator!()const
+	{
+		return !operator bool();
 	}
 	void AddDelegate(const DelegateType& delegate)
 	{
@@ -69,4 +78,4 @@ private:
 
 }
 
-#endif // MULTI_DELEGATE_HPP
+#endif // !MULTI_DELEGATE_HPP

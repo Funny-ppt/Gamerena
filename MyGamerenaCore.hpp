@@ -1,5 +1,5 @@
-﻿#ifndef _MYGAMERENA_CORE_
-#define _MYGAMERENA_CORE_
+﻿#ifndef MY_GAMERENA_CORE_HPP
+#define MY_GAMERENA_CORE_HPP
 
 #include <vector>
 #include <unordered_map>
@@ -8,7 +8,8 @@
 #include <string>
 #include <algorithm>
 #include <functional>
-#include <exception>
+#include "MultiDelegate.hpp"
+#include "MyExceptions.hpp"
 
 namespace GameCore
 {
@@ -25,23 +26,9 @@ using std::string;
 using std::move;
 using std::max;
 using std::remove;
-using Exception = std::exception;
-
-class NullArgumentException : public Exception
-{
-public:
-	NullArgumentException(const string& message) : Message(message) {}
-	virtual const char* what()noexcept { return Message.c_str(); }
-	string Message;
-};
-
-class InvalidArgumentException : public Exception
-{
-public:
-	InvalidArgumentException(const string& message) : Message(message) {}
-	virtual const char* what()noexcept { return Message.c_str(); }
-	string Message;
-};
+using Pptlib::MultiDelegate;
+using Pptlib::NullArgumentException;
+using Pptlib::InvalidArgumentException;
 
 struct INamable
 {
@@ -66,51 +53,77 @@ struct ICloneable
 	virtual ICloneable* Clone()const = 0;
 };
 
-struct IState : public ICloneable
-{
-	IState() = default;
-	virtual ~IState() = default;
-	virtual IState* Clone()const = 0;
-};
-
+struct IState;
 struct IAttribute : public ICloneable, public INamable
 {
 	IAttribute() = default;
 	virtual ~IAttribute() = default;
 	virtual IAttribute* Clone()const = 0;
-	virtual IState* CreateDefaultState()const = 0;
 };
-using Type = IAttribute;
 
+struct IState : public ICloneable
+{
+	IState(const IAttribute* attribute)
+	{
+		if (attribute == nullptr)
+			throw NullArgumentException("attribute can\'t be null.");
+		Attribute = Container<IAttribute>(attribute->Clone());
+	}
+	template<typename AttributeType>
+	IState(Container<AttributeType> attribute)
+	{
+		if (attribute == nullptr)
+			throw NullArgumentException("attribute can\'t be null.");
+		Attribute = attribute; // should here call clone()?
+	}
+	virtual ~IState() = default;
+	virtual IState* Clone()const = 0;
+	virtual void InitFromAttribute() = 0;
+	const IAttribute* GetAttribute()const
+	{
+		return Attribute.get();
+	}
+	IAttribute* GetAttribute()
+	{
+		return Attribute.get();
+	}
+private:
+	Container<IAttribute> Attribute;
+};
 
 class GameObject : public ICloneable, public INamable
 {
 public:
-	GameObject() = default;
-	GameObject(const GameObject& other) :
-		State(other.State->Clone()),
-		Attribute(other.Attribute)
+	GameObject(const IState* state) :
+		GameObject(Container<IState>(state->Clone())) {}
+	template<typename StateType>
+	GameObject(Container<StateType> state) // 也行应该只接受 unique_ptr ? (包括该系列模板构造函数)
 	{
-		SetName(Attribute->GetName());
+		if (state == nullptr)
+			throw NullArgumentException("state can\'t be null.");
+		State = state;
+		SetName(state->GetAttribute()->GetName());
+	}
+	GameObject(const GameObject& other) :
+		State(other.State->Clone())
+	{
+		SetName(other.GetName());
 	}
 	GameObject(GameObject&& other)noexcept :
-		State(other.State),
-		Attribute(other.Attribute)
+		State(other.State)
 	{
-		SetName(Attribute->GetName());
+		SetName(other.GetName());
 	}
 	GameObject& operator=(const GameObject& other)
 	{
 		State = Container<IState>(other.State->Clone());
-		Attribute = other.Attribute;
-		SetName(Attribute->GetName());
+		SetName(other.GetName());
 		return *this;
 	}
 	GameObject& operator=(GameObject&& other)noexcept
 	{
 		State = other.State;
-		Attribute = other.Attribute;
-		SetName(Attribute->GetName());
+		SetName(other.GetName());
 		return *this;
 	}
 	virtual ~GameObject() = default;
@@ -121,218 +134,101 @@ public:
 	}
 	bool IsTypeEquals(const GameObject& other)const
 	{
-		return Attribute == other.Attribute;
+		return State->GetAttribute() == other.State->GetAttribute();
 	}
 	bool HasType(IAttribute* attribute)const
 	{
-		return Attribute.get() == attribute;
-	}
-	Container<IState> GetStateCopy()const
-	{
-		return Container<IState>(State->Clone());
-	}
-	Container<IAttribute> GetAttributeCopy()const
-	{
-		return Container<IAttribute>(Attribute->Clone());
+		return State->GetAttribute() == attribute;
 	}
 	const IState* GetState()const { return State.get(); }
 	IState* GetState() { return State.get(); }
+	const IAttribute* GetAttribute()const { return State->GetAttribute(); }
 protected:
-	const IAttribute* GetAttribute()const { return Attribute.get(); }
-	IAttribute* GetAttribute() { return Attribute.get(); }
+	IAttribute* __GetAttribute() { return State->GetAttribute(); }
+	void UncheckedTypeSetState(IState* state)
+	{
+		if (state == nullptr)
+			throw NullArgumentException("state can\'t be null.");
+		State = Container<IState>(state->Clone());
+	}
+	template<typename StateType>
+	void UncheckedTypeSetState(Container<StateType> state)
+	{
+		SetState(state.get());
+	}
 	void SetState(IState* state)
 	{
+		if (state == nullptr)
+			throw NullArgumentException("state can\'t be null.");
+		if (!HasType(state->GetAttribute()))
+			throw InvalidArgumentException("state have different type.");
 		State = Container<IState>(state->Clone());
 	}
 	template<typename StateType>
 	void SetState(Container<StateType> state)
 	{
-		State = Container<IState>(state->Clone());
-	}
-	void SetAttribute(IAttribute* attribute)
-	{
-		Attribute = Container<IAttribute>(attribute->Clone());
-	}
-	template<typename AttributeType>
-	void SetAttribute(Container<AttributeType> attribute)
-	{
-		Attribute = Container<IAttribute>(attribute);
+		SetState(state.get());
 	}
 private:
-	Container<IState> State = nullptr;
-	Container<IAttribute> Attribute = nullptr;
+	Container<IState> State;
 };
 
-struct IModifier : public ICloneable, public INamable
-{
-	IModifier() = default;
-	virtual ~IModifier() = default;
-	virtual IModifier* Clone()const = 0;
-	virtual void Modify(IAttribute*)const = 0;
-	int RoundCount = 0;
-	int TimeCount = 0;
-	int MaxRound = -1;
-	int MaxTime = -1;
-};
-
-class StateBase : public IState
-{
-public:
-	StateBase() = default;
-	StateBase(const StateBase& other) : Modifiers(other.Modifiers.size())
-	{
-		for (size_t i = 0; i < other.Modifiers.size(); ++i)
-			Modifiers[i] = Container<IModifier>(other.Modifiers[i]->Clone());
-	}
-	StateBase(StateBase&& other) = default;
-	StateBase& operator=(const StateBase& other)
-	{
-		Modifiers.resize(other.Modifiers.size());
-		for (size_t i = 0; i < other.Modifiers.size(); ++i)
-			Modifiers[i] = Container<IModifier>(other.Modifiers[i]->Clone());
-		return *this;
-	}
-	StateBase& operator=(StateBase&& other) = default;
-	virtual ~StateBase() = default;
-	virtual StateBase* Clone()const { return new StateBase(*this); }
-	void RemoveModifier(const string& name)
-	{
-		auto iter = remove_if(Modifiers.begin(), Modifiers.end(),
-			[&](Container<IModifier> modifier)
-			{ return modifier->HasName(name); });
-		Modifiers.erase(iter, Modifiers.end());
-	}
-protected:
-	IAttribute* GetModifiedAttribute(const IAttribute* attribute)const
-	{ // Tips: You need release the resource of the return pointer
-		auto result = attribute->Clone();
-		for (auto& modifier : Modifiers)
-			modifier->Modify(result);
-		return result;
-	}
-	void AddModifier(const IModifier* modifier)
-	{
-		Modifiers.push_back(Container<IModifier>(modifier->Clone()));
-	}
-private:
-	List<Container<IModifier>> Modifiers;
-};
-
-struct EntityAttribute;
 struct EntityState;
 class Entity;
 
-struct EntityAttributeModifier : public IModifier
-{
-	virtual EntityAttributeModifier* Clone()const
-	{
-		return new EntityAttributeModifier(*this);
-	}
-	virtual ~EntityAttributeModifier() = default;
-	virtual void ModifyState(IState* state)const;
-	virtual void Modify(IAttribute* attribute)const;
-};
-
-struct EntityState : public StateBase
-{
-	EntityState() = default;
-	virtual EntityState* Clone()const { return new EntityState(*this); }
-	virtual ~EntityState() = default;
-	Container<EntityAttribute>
-	GetModifiedAttribute(const EntityAttribute* attribute)const;
-	void AddModifier(const EntityAttributeModifier* modifier)
-	{
-		if (modifier == nullptr)
-			throw NullArgumentException("modifier can\'t be null.");
-		modifier->ModifyState(this);
-		StateBase::AddModifier((const IModifier*)modifier);
-	}
-};
-
 struct EntityAttribute : public IAttribute
 {
+	EntityAttribute() = default;
+	virtual ~EntityAttribute() = default;
 	virtual EntityAttribute* Clone()const
 	{
 		return new EntityAttribute(*this);
 	}
-	virtual ~EntityAttribute() = default;
-	virtual EntityState* CreateDefaultState()const
-	{
-		return new EntityState();
-	}
 	using ActionHandler = Delegate<void(Entity*)>;
-	void AddAction(const ActionHandler& handler)
+	virtual void AddAction(const ActionHandler& handler)
 	{
-		if (!handler)
-			throw InvalidArgumentException("handler is null/invalid.");
-		Actions.push_back(handler);
+		Actions += handler;
 	}
-	void AddNamedAction(const ActionHandler& handler, const string& name)
+	virtual void AddNamedAction(const ActionHandler& handler, const string& name)
 	{
-		AddAction(handler);
+		Actions += handler;
 		NamedActions[name] = handler;
 	}
-	bool TryInvokeAction(const string& actionName, Entity* entity)
+	bool TryInvokeAction(const string& actionName, Entity* entity)const
 	{
 		if (NamedActions.count(actionName))
 		{
-			NamedActions[actionName](entity);
+			NamedActions.find(actionName)->second(entity);
 			return true;
 		}
 		return false;
 	}
-	void InvokeAllActions(Entity* entity)
+	void InvokeAllActions(Entity* entity)const
 	{
-		for (auto& action : Actions)
-			action(entity);
+		Actions.Invoke(entity);
 	}
 private:
-	List<ActionHandler> Actions;
+	MultiDelegate<Entity*> Actions;
 	HashMap<string, ActionHandler> NamedActions;
 };
 
-inline Container<EntityAttribute>
-EntityState::GetModifiedAttribute(const EntityAttribute* attribute)const
+struct EntityState : public IState
 {
-	auto result =
-		(EntityAttribute*)StateBase::GetModifiedAttribute(attribute);
-	return Container<EntityAttribute>(result);
-}
-
-inline void EntityAttributeModifier::ModifyState(IState* state)const
-{
-	EntityState* pEntityState = dynamic_cast<EntityState*>(state);
-	if (pEntityState == nullptr)
-		throw InvalidArgumentException(
-			"state can\'t be null and have type of \"EntityState\".");
-	// TODO
-}
-
-inline void EntityAttributeModifier::Modify(IAttribute* attribute)const
-{
-	EntityAttribute* pEntityAttribute =
-		dynamic_cast<EntityAttribute*>(attribute);
-	if (pEntityAttribute == nullptr)
-		throw InvalidArgumentException(
-			"attribute can\'t be null and have type of \"EntityAttribute\".");
-	// TODO
-}
+	EntityState(const EntityAttribute* attribute) : IState(attribute) {}
+	template<typename AttributeType>
+	EntityState(Container<AttributeType> attribute) : IState(attribute) {}
+	virtual EntityState* Clone()const { return new EntityState(*this); }
+	virtual void InitFromAttribute() {}
+	virtual ~EntityState() = default;
+};
 
 class Entity : public GameObject
 {
-	static HashMap<string, Container<EntityAttribute>> AttributeMap;
 	static HashMap<string, Container<EntityState>> StateMap;
 public:
-	static bool NamedAttribute(EntityAttribute* attribute, const string& name,
-		bool replaceOld = false)
-	{
-		if (attribute == nullptr)
-			throw NullArgumentException("attribute can\'t be null.");
-		if (AttributeMap.count(name) && !replaceOld)
-			throw InvalidArgumentException("name has been used.");
-		AttributeMap[name] = Container<EntityAttribute>(attribute->Clone());
-	}
-	static bool NamedState(EntityState* state, const string& name,
+	static bool NamedState(
+		EntityState* state,
+		const string& name,
 		bool replaceOld = false)
 	{
 		if (state == nullptr)
@@ -341,61 +237,43 @@ public:
 			throw InvalidArgumentException("name has been used.");
 		StateMap[name] = Container<EntityState>(state->Clone());
 	}
-	Entity(EntityAttribute* attribute, EntityState* state) :
-		Entity(Container<EntityAttribute>
-			(attribute ? attribute->Clone() : nullptr), state) {}
-	Entity(EntityAttribute* attribute, const string& stateName) :
-		Entity(Container<EntityAttribute>
-			(attribute ? attribute->Clone() : nullptr),
-			 StateMap[stateName].get()) {}
-	Entity(const string& attributeName, EntityState* state) :
-		Entity(AttributeMap[attributeName], state) {}
-	Entity(const string& attributeName, const string& stateName) :
-		Entity(AttributeMap[attributeName], StateMap[stateName].get()) {}
+	Entity(const string& entityName) :
+		GameObject(StateMap.count(entityName)
+			? StateMap[entityName].get()
+			: throw InvalidArgumentException("Can\'t find name.")) {}
+	Entity(const EntityState* state) : GameObject(state) {}
+	template<typename StateType>
+	Entity(Container<StateType> state) : GameObject(state) {}
 	virtual Entity* Clone()const { return new Entity(*this); }
 	virtual ~Entity() = default;
-	Container<EntityAttribute> GetModifiedAttribute()const
+	const EntityAttribute* GetAttribute()const
 	{
-		return ((EntityState*)GetState())
-			->GetModifiedAttribute((EntityAttribute*)GetAttribute());
+		return (const EntityAttribute*)GameObject::GetAttribute();
 	}
-	void AddModifier(EntityAttributeModifier* modifier)
+	EntityState* GetState()
 	{
-		((EntityState*)GetState())->AddModifier(modifier);
+		return (EntityState*)GameObject::GetState();
 	}
-	void RemoveModifier(const string& name)
+	const EntityState* GetState()const
 	{
-		((EntityState*)GetState())->RemoveModifier(name);
+		return (const EntityState*)GameObject::GetState();
 	}
 	void DoActions()
 	{
-		((EntityAttribute*)GetAttribute())->InvokeAllActions(this);
+		GetAttribute()->InvokeAllActions(this);
 	}
 	bool TryDoAction(const string& actionName)
 	{
-		return ((EntityAttribute*)GetAttribute())->TryInvokeAction(actionName, this);
+		return GetAttribute()->TryInvokeAction(actionName, this);
 	}
 protected:
-	Entity(Container<EntityAttribute> attribute, EntityState* state)
+	EntityAttribute* __GetAttribute()
 	{
-		if (attribute == nullptr)
-			throw NullArgumentException("attribute can\'t be null.");
-		SetAttribute(attribute);
-		if (state == nullptr)
-		{
-			state = attribute->CreateDefaultState();
-			SetState(state);
-			delete state;
-		}
-		else
-		{
-			SetState(state);
-		}
+		return (EntityAttribute*)GameObject::__GetAttribute();
 	}
 };
-HashMap<string, Container<EntityAttribute>> Entity::AttributeMap;
 HashMap<string, Container<EntityState>> Entity::StateMap;
 
 } // namespace GameCore
 
-#endif
+#endif // !MY_GAMERENA_CORE_HPP
