@@ -1,4 +1,5 @@
 ﻿#include "MyGamerenaCore.hpp"
+#include "StringFormat.hpp"
 #include <cstdlib>
 #include <iostream>
 #include <ctime>
@@ -42,6 +43,26 @@ struct TargetTypeEnum
 constexpr StageEnum Stages;
 constexpr TargetTypeEnum TargetsType;
 }
+
+struct LogEventArgs
+{
+	string LogText;
+	vector<ICustomFormatter*> FormattableObjects;
+};
+
+class LogRecorder
+{
+public:
+	MultiDelegate<LogRecorder*, LogEventArgs*> BeforeLog;
+	MultiDelegate<LogRecorder*, LogEventArgs*> AfterLog;
+	void SetSpaceLevel(int level)
+	{
+		SpaceLevel = level;
+	}
+private:
+	basic_ostream<char>* OutputStream;
+	int SpaceLevel;
+};
 
 class GamerenaEntity;
 using Targets = List<GamerenaEntity*>; // 暂定, 将来可能会改成类

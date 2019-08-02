@@ -95,9 +95,9 @@ class GameObject : public ICloneable, public INamable
 {
 public:
 	GameObject(const IState* state) :
-		GameObject(Container<IState>(state->Clone())) {}
+		GameObject(Container<IState>(state ? state->Clone() : nullptr)) {}
 	template<typename StateType>
-	GameObject(Container<StateType> state) // 也行应该只接受 unique_ptr ? (包括该系列模板构造函数)
+	GameObject(Container<StateType> state) // 也许应该只接受 unique_ptr ? (包括该系列模板构造函数)
 	{
 		if (state == nullptr)
 			throw NullArgumentException("state can\'t be null.");
