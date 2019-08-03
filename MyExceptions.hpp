@@ -15,7 +15,7 @@ class UnexpectedCallException : public Exception
 {
 public:
 	UnexpectedCallException(const string& message) : Message(message) {}
-	virtual const char* what()const { return Message.c_str(); }
+	virtual const char* what()const noexcept { return Message.c_str(); }
 	string Message;
 };
 
@@ -23,7 +23,7 @@ class NullArgumentException : public Exception
 {
 public:
 	NullArgumentException(const string& message) : Message(message) {}
-	virtual const char* what()const { return Message.c_str(); }
+	virtual const char* what()const noexcept { return Message.c_str(); }
 	string Message;
 };
 
@@ -31,7 +31,7 @@ class InvalidArgumentException : public Exception
 {
 public:
 	InvalidArgumentException(const string& message) : Message(message) {}
-	virtual const char* what()const { return Message.c_str(); }
+	virtual const char* what()const noexcept { return Message.c_str(); }
 	string Message;
 };
 
@@ -39,7 +39,7 @@ class NotImplementedException : public Exception
 {
 public:
 	NotImplementedException(const string& message) : Message(message) {}
-	virtual const char* what()const { return Message.c_str(); }
+	virtual const char* what()const noexcept { return Message.c_str(); }
 	string Message;
 };
 

@@ -42,6 +42,8 @@ struct FormatStringAnalyzer
 					else
 					{
 						++index;
+						if (isspace(resource.at(index))) // 是否允许空格有待考量
+							++index;
 						if (!isdigit(resource.at(index)))
 							throw InvalidArgumentException(
 								"Can\'t find format object index."
@@ -52,6 +54,8 @@ struct FormatStringAnalyzer
 							arrIndex = arrIndex * 10 + resource.at(index) - '0';
 							++index;
 						}
+						if (isspace(resource.at(index))) // 是否允许空格有待考量
+							++index;
 						if (resource[index] != ':' && resource[index] != '}')
 							throw InvalidArgumentException(
 								"Unexpected char in format string."

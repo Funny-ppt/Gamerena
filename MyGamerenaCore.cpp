@@ -1,5 +1,6 @@
 ﻿#include "MyGamerenaCore.hpp"
 #include "StringFormat.hpp"
+#include "CommandAnalyzer.hpp"
 #include <cstdlib>
 #include <iostream>
 #include <ctime>
@@ -83,6 +84,7 @@ struct Skill
 	{
 		SkillDetails.Invoke(performer, targets);
 	}
+	string Name;
 	MultiDelegate<GamerenaEntity*, const Targets&> SkillDetails;
 	::TargetType TargetType;
 	int Priority;
@@ -230,7 +232,7 @@ struct GamerenaState : public EntityState
 	MultiDelegate<GamerenaState*> OnDeath;
 };
 
-class GamerenaEntity : public Entity
+class GamerenaEntity : public Entity, public ICustomFormatter
 {
 public:
 	GamerenaEntity(
@@ -258,6 +260,54 @@ public:
 	GamerenaState* GetState()
 	{
 		return (GamerenaState*)Entity::GetState();
+	}
+	virtual string Format(const string& formats)const
+	{
+		auto& state = *GetState();
+		auto& attr = *GetAttribute();
+		ostringstream stream;
+		auto& str = formats;
+		//for (auto& str : Split(formats, ' '))
+		//{
+			if (str == "hps")
+				stream << state.HP << " / " << attr.BaseHP;
+			else if (str == "hp")
+				stream << attr.BaseHP;
+			else if (str == "bhp")
+				stream << state.HP;
+			else if (str == "name")
+				stream << GetName();
+			else if (str == "atk")
+				stream << attr.BaseAttack;
+			else if (str == "def")
+				stream << attr.BaseDefense;
+			else if (str == "mag")
+				stream << attr.BaseMagic;
+			else if (str == "magdef")
+				stream << attr.BaseMagicDefense;
+			else if (str == "spd")
+				stream << attr.BaseSpeed;
+			else if (str == "acc")
+				stream << attr.BaseAccuracy;
+			else if (str == "int")
+				stream << attr.BaseIntelligence;
+			else if (str == "score")
+				stream << state.Score;
+			else if (str == "hps+")
+			{
+				stream << state.HP << " / " << attr.BaseHP << "  <";
+				int b = (state.HP + 10) / 20;
+				for (int i = 0; i < b; ++i) stream.put(2);
+				for (int i = b; i < (attr.BaseHP + 10) / 20; ++i) stream.put(1);
+				stream.put('>');
+			}
+			else
+				throw InvalidArgumentException(
+					"GamerenaEntity.Format(): Invalid format string."
+				);
+		//	stream.put(' ');
+		//}
+		return stream.str();
 	}
 protected:
 	GamerenaAttribute* __GetAttribute()
@@ -501,8 +551,6 @@ private:
 	HashMap<size_t, Group> Groups;
 };
 
-void ShowObject(const GamerenaEntity* e, int space, int level);
-
 void CausePhysicDamage(
 	GamerenaEntity* p,
 	List<GamerenaEntity*> targets,
@@ -531,7 +579,8 @@ void CausePhysicDamage(
 	cout << " 对 " << tAttr.GetName() << " 造成了 " << damage << "点伤害.\n";
 	pState.Score += damage;
 	tState.GetDamage(damage);
-	ShowObject(t, 4, 0);
+	cout << FormatStringAnalyzer::
+		Analysis("    {0:name}  HP {0:hps+}\n", { t });
 	if (tState.Active == false)
 	{
 		pState.Score += 30;
@@ -569,7 +618,8 @@ void CauseMagicDamage(
 	cout << " 对 " << tAttr.GetName() << " 造成了 " << damage << "点魔法伤害.\n";
 	pState.Score += damage;
 	tState.GetDamage(damage);
-	ShowObject(t, 4, 0);
+	cout << FormatStringAnalyzer::
+		Analysis("    {0:name}  HP {0:hps+}\n", { t });
 	if (tState.Active == false)
 	{
 		pState.Score += 30;
@@ -577,7 +627,7 @@ void CauseMagicDamage(
 	}
 }
 
-void MakeCuel(
+void MakeCure(
 	GamerenaEntity* p,
 	List<GamerenaEntity*> targets,
 	double hFactor = 1.0)
@@ -596,126 +646,111 @@ void MakeCuel(
 	pState.Score += heal;
 	tState.HP += heal;
 	cout << " " << tAttr.GetName() << " 恢复了 "<< heal << " 点生命值.\n";
-	ShowObject(t, 4, 0);
+	cout << FormatStringAnalyzer::
+		Analysis("    {0:name}  HP {0:hps+}\n", { t });
 }
 
 void BaseAttack(GamerenaEntity* p, const Targets& targets)
 {
-	ShowObject(p, 0, 0);
+	cout << FormatStringAnalyzer::
+		Analysis("{0:name} HP  {0:hps+}\n", { p });
 	cout << "  发起了攻击,";
 	CausePhysicDamage(p, targets);
 }
 
 void BaseMagic(GamerenaEntity* p, const Targets& targets)
 {
-	ShowObject(p, 0, 0);
+	cout << FormatStringAnalyzer::
+		Analysis("{0:name} HP  {0:hps+}\n", { p });
 	cout << "  使用法术攻击,";
 	CauseMagicDamage(p, targets);
 }
 
 void FireBall(GamerenaEntity* p, const Targets& targets)
 {
-	ShowObject(p, 0, 0);
+	cout << FormatStringAnalyzer::
+		Analysis("{0:name} HP  {0:hps+}\n", { p });
 	cout << "  发射出火球,";
 	CauseMagicDamage(p, targets, 1.5);
 }
 
 void Critical(GamerenaEntity* p, const Targets& targets)
 {
-	ShowObject(p, 0, 0);
+	cout << FormatStringAnalyzer::
+		Analysis("{0:name} HP  {0:hps+}\n", { p });
 	cout << "  瞄准了目标的弱点攻击,";
 	CausePhysicDamage(p, targets, 2);
 }
 
-void Cuel(GamerenaEntity* p, const Targets& targets)
+void Cure(GamerenaEntity* p, const Targets& targets)
 {
-	ShowObject(p, 0, 0);
+	cout << FormatStringAnalyzer::
+		Analysis("{0:name} HP  {0:hps+}\n", { p });
 	cout << "  使用了治愈魔法,";
-	MakeCuel(p, targets, 1.2);
+	MakeCure(p, targets, 1.2);
 }
 
 void SkillSelector::GenerateSkill(GamerenaAttribute* pAttr)
 {
 	auto& attr = *pAttr;
 	int BaseAttackPriority =
-		250 + (attr.BaseAttack - attr.BaseMagic) * 4 * (0.5 + Random());
+		250 + (attr.BaseAttack - attr.BaseMagic) * (0.5 + Random()) * 4;
 	int BaseMagicPriority =
-		250 + (attr.BaseMagic - attr.BaseAttack) * 4 * (0.5 + Random());
+		250 + (attr.BaseMagic - attr.BaseAttack) * (0.5 + Random()) * 4;
 	int FireBallPriority =
 		50 + (attr.BaseIntelligence >> 1) + (attr.BaseMagic);
 	int CriticalPriority =
 		30 + (attr.BaseIntelligence >> 2) + (attr.BaseAttack >> 1)
 		+ (attr.BaseAccuracy >> 1);
-	int CuelPriority =
+	int CurePriority =
 		60 + (attr.BaseIntelligence >> 1) + (attr.BaseMagic >> 2);
-	AddSkill({ std::list<SkillDelegateType>{ BaseAttack },
+	AddSkill(
+		{ "BaseAttack", std::list<SkillDelegateType>{ BaseAttack },
 		TargetsType.Enemy, BaseAttackPriority });
-	AddSkill({ std::list<SkillDelegateType>{ BaseMagic },
+	AddSkill(
+		{ "BaseMagic", std::list<SkillDelegateType>{ BaseMagic },
 		TargetsType.Enemy, BaseMagicPriority });
 	if (FireBallPriority > 140)
-		AddSkill({ std::list<SkillDelegateType>{ FireBall },
+		AddSkill(
+			{ "FireBall", std::list<SkillDelegateType>{ FireBall },
 			TargetsType.Enemy, FireBallPriority });
 	if (CriticalPriority > 125)
-		AddSkill({ std::list<SkillDelegateType>{ Critical },
+		AddSkill(
+			{ "Critical", std::list<SkillDelegateType>{ Critical },
 			TargetsType.Enemy, CriticalPriority });
-	if (CuelPriority > 100)
-		AddSkill({ std::list<SkillDelegateType>{ Cuel },
-			TargetsType.Teammate, CuelPriority });
-}
-
-void ShowObject(const GamerenaEntity* e, int space, int level)
-{
-	if (e == nullptr)
-		throw NullArgumentException("entity can\'t be null.");
-	auto& state = *e->GetState();
-	auto& attr = *e->GetAttribute();
-	auto PrintSpace = [&](){
-		for (int i = 0; i < space; ++i) cout.put('\0');
-	};
-	PrintSpace();
-	cout << "Name: " << attr.GetName() << "  "
-		 << "HP: " << state.HP << " / " << attr.BaseHP << "  <";
-	int b = (state.HP + 10) / 20;
-	for (int i = 0; i < b; ++i) cout.put(2);
-	for (int i = b; i < (attr.BaseHP + 10) / 20; ++i) cout.put(1);
-	cout << ">\n";
-	if (level > 1)
-	{
-		PrintSpace();
-		cout << "Score: " << state.Score << '\n';
-	}
-	if (!state.Active)
-	{
-		PrintSpace();
-		cout << "+-| xD\n";
-		return;
-	}
-	if (level > 0)
-	{
-		PrintSpace();
-		cout << "Atk: " << attr.BaseAttack << "\tDef: " << attr.BaseDefense
-			 << "\t\tAcc: " << attr.BaseAccuracy << '\n';
-		PrintSpace();
-		cout << "Mag: " << attr.BaseMagic << "\tMagDef: " << attr.BaseMagicDefense
-			 << "\tSpd: " << attr.BaseSpeed << "\tInt: " << attr.BaseIntelligence
-			 << '\n';
-	}
+	if (CurePriority > 100)
+		AddSkill(
+			{ "Cure", std::list<SkillDelegateType>{ Cure },
+			TargetsType.Teammate, CurePriority });
 }
 
 int main()
 {
 	ios::sync_with_stdio(false);
+	CommandAnalyzer Analyzer;
 	string fullName;
-	const string DefaultSeed = "${DefaultSeed}";
-	string seed = DefaultSeed;
+	size_t seed = time(0);
 	Game game;
 	unordered_set<string> nameUsed;
+	Analyzer.AddCommand("SetSeed",
+		[&](List<string>& args)
+		{
+			seed = hash<string>()(args.at(0));
+			cout << "Set seed to \"" << seed << "\".\n";
+		});
 	while (getline(cin, fullName))
 	{
 		if (fullName[0] == '>')
 		{
 			// TODO: CommandMode
-			cout << "Command is working.\n";
+			try
+			{
+				Analyzer.Analysis(fullName);
+			}
+			catch (Exception& ex)
+			{
+				cerr << ex.what() << '\n';
+			}
 			continue;
 		}
 		size_t nameLength = fullName.find_last_of('@');
@@ -732,7 +767,7 @@ int main()
 			if (nameLength != string::npos)
 				groupName = string(fullName, nameLength + 1, string::npos);
 			else
-				groupName = "~@Default";
+				groupName = name;
 			if (groupName == "")
 			{
 				cout << "GroupName shouldn\'t be empty.\n";
@@ -749,15 +784,17 @@ int main()
 	}
 	const size_t srandF = 73;
 	const size_t srandS = 749431;
-	srand(/*hash<string>()(seed)*/time(0) * srandF + srandS);
+	srand(seed * srandF + srandS);
 	for (auto& pair : game.GetGroups())
 	{
 		cout << "GroupName: " << pair.first << '\n';
 		for (auto& member : pair.second)
-		{
-			ShowObject(member.get(), 4, 1);
-			cout.put('\n');
-		}
+			cout << FormatStringAnalyzer::
+				Analysis(
+					"    {0:name}    HP  {0:hp}  Spd  {0:spd}\n"
+					"    Atk  {0:atk}  Def     {0:def}  Acc  {0:acc}\n"
+					"    Mag  {0:mag}  MagDef  {0:magdef}  Int  {0:int}\n",
+					{ member.get() });
 	}
 	cin.ignore(1024, '\n');
 	cout << "PressAnyKeyToStart...\n";
@@ -768,10 +805,11 @@ int main()
 	{
 		cout << "GroupName: " << pair.first << '\n';
 		for (auto& member : pair.second)
-		{
-			ShowObject(member.get(), 4, 2);
-			cout.put('\n');
-		}
+			cout << FormatStringAnalyzer::
+				Analysis(
+					"    {0:name}    HP {0:hps+}\n"
+					"    Score: {0:score}\n",
+					{ member.get() });
 	}
 	cout << "Done...\n";
 	cin.get();
