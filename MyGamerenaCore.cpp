@@ -266,9 +266,11 @@ public:
 		auto& state = *GetState();
 		auto& attr = *GetAttribute();
 		ostringstream stream;
-		auto& str = formats;
-		//for (auto& str : Split(formats, ' '))
-		//{
+		bool isFirst = true;
+		for (auto& str : Split(formats, ' '))
+		{
+			if (isFirst) isFirst = false;
+			else stream.put(' ');
 			if (str == "hps")
 				stream << state.HP << " / " << attr.BaseHP;
 			else if (str == "hp")
@@ -295,7 +297,7 @@ public:
 				stream << state.Score;
 			else if (str == "hps+")
 			{
-				stream << state.HP << " / " << attr.BaseHP << "  <";
+				stream << "HP " << state.HP << " / " << attr.BaseHP << " <";
 				int b = (state.HP + 10) / 20;
 				for (int i = 0; i < b; ++i) stream.put(2);
 				for (int i = b; i < (attr.BaseHP + 10) / 20; ++i) stream.put(1);
@@ -305,8 +307,7 @@ public:
 				throw InvalidArgumentException(
 					"GamerenaEntity.Format(): Invalid format string."
 				);
-		//	stream.put(' ');
-		//}
+		}
 		return stream.str();
 	}
 protected:
@@ -580,7 +581,7 @@ void CausePhysicDamage(
 	pState.Score += damage;
 	tState.GetDamage(damage);
 	cout << FormatStringAnalyzer::
-		Analysis("    {0:name}  HP {0:hps+}\n", { t });
+		Analysis("    {0:name hps+}\n", { t });
 	if (tState.Active == false)
 	{
 		pState.Score += 30;
@@ -619,7 +620,7 @@ void CauseMagicDamage(
 	pState.Score += damage;
 	tState.GetDamage(damage);
 	cout << FormatStringAnalyzer::
-		Analysis("    {0:name}  HP {0:hps+}\n", { t });
+		Analysis("    {0:name hps+}\n", { t });
 	if (tState.Active == false)
 	{
 		pState.Score += 30;
@@ -647,13 +648,13 @@ void MakeCure(
 	tState.HP += heal;
 	cout << " " << tAttr.GetName() << " 恢复了 "<< heal << " 点生命值.\n";
 	cout << FormatStringAnalyzer::
-		Analysis("    {0:name}  HP {0:hps+}\n", { t });
+		Analysis("    {0:name hps+}\n", { t });
 }
 
 void BaseAttack(GamerenaEntity* p, const Targets& targets)
 {
 	cout << FormatStringAnalyzer::
-		Analysis("{0:name} HP  {0:hps+}\n", { p });
+		Analysis("{0:name hps+}\n", { p });
 	cout << "  发起了攻击,";
 	CausePhysicDamage(p, targets);
 }
@@ -661,7 +662,7 @@ void BaseAttack(GamerenaEntity* p, const Targets& targets)
 void BaseMagic(GamerenaEntity* p, const Targets& targets)
 {
 	cout << FormatStringAnalyzer::
-		Analysis("{0:name} HP  {0:hps+}\n", { p });
+		Analysis("{0:name hps+}\n", { p });
 	cout << "  使用法术攻击,";
 	CauseMagicDamage(p, targets);
 }
@@ -669,7 +670,7 @@ void BaseMagic(GamerenaEntity* p, const Targets& targets)
 void FireBall(GamerenaEntity* p, const Targets& targets)
 {
 	cout << FormatStringAnalyzer::
-		Analysis("{0:name} HP  {0:hps+}\n", { p });
+		Analysis("{0:name hps+}\n", { p });
 	cout << "  发射出火球,";
 	CauseMagicDamage(p, targets, 1.5);
 }
@@ -677,7 +678,7 @@ void FireBall(GamerenaEntity* p, const Targets& targets)
 void Critical(GamerenaEntity* p, const Targets& targets)
 {
 	cout << FormatStringAnalyzer::
-		Analysis("{0:name} HP  {0:hps+}\n", { p });
+		Analysis("{0:name hps+}\n", { p });
 	cout << "  瞄准了目标的弱点攻击,";
 	CausePhysicDamage(p, targets, 2);
 }
@@ -685,7 +686,7 @@ void Critical(GamerenaEntity* p, const Targets& targets)
 void Cure(GamerenaEntity* p, const Targets& targets)
 {
 	cout << FormatStringAnalyzer::
-		Analysis("{0:name} HP  {0:hps+}\n", { p });
+		Analysis("{0:name hps+}\n", { p });
 	cout << "  使用了治愈魔法,";
 	MakeCure(p, targets, 1.2);
 }
@@ -807,7 +808,7 @@ int main()
 		for (auto& member : pair.second)
 			cout << FormatStringAnalyzer::
 				Analysis(
-					"    {0:name}    HP {0:hps+}\n"
+					"    {0:name}    {0:hps+}\n"
 					"    Score: {0:score}\n",
 					{ member.get() });
 	}
